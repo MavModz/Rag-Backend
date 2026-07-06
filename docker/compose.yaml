@@ -1,0 +1,41 @@
+# Minimal dev stack: only the app runs in Docker.
+#
+# External services — you provide their URLs in .env:
+#   - PostgreSQL  (installed manually on the server)  -> POSTGRES_URL
+#   - Redis       (already on the server)             -> REDIS_URL
+#     When these run on the Docker HOST, use host.docker.internal in the URL, e.g.
+#       POSTGRES_URL=postgresql+asyncpg://user:pass@host.docker.internal:5432/ai_platform
+#       REDIS_URL=redis://host.docker.internal:6379/0
+#
+# Embedded / local (no containers):
+#   - Qdrant         -> embedded on disk (./data/qdrant)
+#   - Object storage -> local disk (./data/storage)
+#   - Ollama         -> runs on the host (host.docker.internal:11434)
+#
+#   docker compose -f docker/compose.yaml up --build
+name: ai-platform
+
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    # Secrets + external service URLs (POSTGRES_URL, REDIS_URL,
+    # DATA_SOURCE_ENCRYPTION_KEY, JWT_SECRET, ...) come from .env.
+    env_file:
+      - ../.env
+    environment:
+      QDRANT_PATH: ./data/qdrant          # embedded (on the mounted volume)
+      OBJECT_STORE_BACKEND: local
+      STORAGE_ROOT: ./data/storage
+      OLLAMA_BASE_URL: http://host.docker.internal:11434
+      AUTH_ALLOW_ANONYMOUS: "false"
+      CORS_ALLOW_ORIGINS: http://localhost:3000
+      LOG_FORMAT: json
+      RUN_SEED: "true"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ../data:/app/data                 # persist embedded Qdrant + uploads/storage
+    ports:
+      - "8000:8000"
