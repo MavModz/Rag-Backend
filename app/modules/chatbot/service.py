@@ -141,12 +141,24 @@ async def get_or_create_config(
     return row
 
 
+async def _serialize_after_commit(
+    session: AsyncSession, row: ChatbotConfig
+) -> ChatbotConfigOut:
+    """Commit, refresh server defaults (e.g. updated_at), then build API output.
+
+    Async SQLAlchemy cannot lazy-load expired attributes after the session
+    closes; refresh while the session is still open.
+    """
+    await session.commit()
+    await session.refresh(row)
+    return to_out(row)
+
+
 async def get_config_out(tenant_id: uuid.UUID, channel: str) -> ChatbotConfigOut:
     sessionmaker = get_sessionmaker()
     async with sessionmaker() as session:
         row = await get_or_create_config(session, tenant_id, channel)
-        await session.commit()
-        return to_out(row)
+        return await _serialize_after_commit(session, row)
 
 
 async def _sync_prompt_rows(session: AsyncSession, tenant_id: uuid.UUID, row: ChatbotConfig) -> None:
@@ -261,8 +273,7 @@ async def replace_config(
         _apply_put(row, payload)
         row.version += 1
         await _sync_prompt_rows(session, tenant_id, row)
-        await session.commit()
-        return to_out(row)
+        return await _serialize_after_commit(session, row)
 
 
 async def patch_config(
@@ -275,8 +286,7 @@ async def patch_config(
         _apply_patch(row, payload)
         row.version += 1
         await _sync_prompt_rows(session, tenant_id, row)
-        await session.commit()
-        return to_out(row)
+        return await _serialize_after_commit(session, row)
 
 
 async def ensure_chatbot_enabled(tenant_ctx: TenantContext, channel: str) -> None:
@@ -316,4 +326,9 @@ async def get_config_row(
 ) -> ChatbotConfig | None:
     sessionmaker = get_sessionmaker()
     async with sessionmaker() as session:
-        return await repo.get_by_tenant_channel(session, tenant_id, channel)
+        row = await repo.get_by_tenant_channel(session, tenant_id, channel)
+        if row is None:
+            return None
+        await session.refresh(row)
+        session.expunge(row)
+        return row
