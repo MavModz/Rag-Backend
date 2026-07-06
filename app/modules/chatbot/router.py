@@ -8,7 +8,11 @@ from fastapi import APIRouter, Depends, HTTPException
 from app.modules.chatbot import schemas
 from app.modules.chatbot import service as chatbot_service
 from app.config import settings
-from app.modules.chatbot.exceptions import ChatbotDisabledError, ChatbotVersionConflictError
+from app.modules.chatbot.exceptions import (
+    ChatbotDisabledError,
+    ChatbotSchemaNotReadyError,
+    ChatbotVersionConflictError,
+)
 from app.modules.conversation import service as chat_service
 from app.platform.auth.dependencies import require_permission
 from app.platform.auth.rbac import Permission
@@ -34,11 +38,24 @@ def _tenant_id(ctx: TenantContext) -> uuid.UUID:
     return tid
 
 
+def _raise_chatbot_http(exc: Exception) -> None:
+    if isinstance(exc, ChatbotVersionConflictError):
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if isinstance(exc, ValueError):
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if isinstance(exc, ChatbotSchemaNotReadyError):
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    raise exc
+
+
 @router.get("/whatsapp/config", response_model=schemas.ChatbotConfigOut)
 async def get_whatsapp_config(
     ctx: TenantContext = Depends(_READ),
 ) -> schemas.ChatbotConfigOut:
-    return await chatbot_service.get_config_out(_tenant_id(ctx), _CHANNEL)
+    try:
+        return await chatbot_service.get_config_out(_tenant_id(ctx), _CHANNEL)
+    except ChatbotSchemaNotReadyError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @router.put("/whatsapp/config", response_model=schemas.ChatbotConfigOut)
@@ -48,10 +65,8 @@ async def put_whatsapp_config(
 ) -> schemas.ChatbotConfigOut:
     try:
         return await chatbot_service.replace_config(_tenant_id(ctx), _CHANNEL, payload)
-    except ChatbotVersionConflictError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except (ChatbotVersionConflictError, ValueError, ChatbotSchemaNotReadyError) as exc:
+        _raise_chatbot_http(exc)
 
 
 @router.patch("/whatsapp/config", response_model=schemas.ChatbotConfigOut)
@@ -61,10 +76,8 @@ async def patch_whatsapp_config(
 ) -> schemas.ChatbotConfigOut:
     try:
         return await chatbot_service.patch_config(_tenant_id(ctx), _CHANNEL, payload)
-    except ChatbotVersionConflictError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except (ChatbotVersionConflictError, ValueError, ChatbotSchemaNotReadyError) as exc:
+        _raise_chatbot_http(exc)
 
 
 @router.post("/whatsapp/test", response_model=schemas.ChatbotTestResponse)
@@ -91,6 +104,8 @@ async def test_whatsapp_config(
     try:
         await chatbot_service.ensure_chatbot_enabled(ctx, _CHANNEL)
     except ChatbotDisabledError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except ChatbotSchemaNotReadyError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     config = await chatbot_service.get_config_row(_tenant_id(ctx), _CHANNEL)

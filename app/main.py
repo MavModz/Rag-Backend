@@ -11,11 +11,13 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.config import settings
 from app.modules import health
 from app.modules.admin import router as admin_router
 from app.modules.chatbot import router as chatbot_router
+from app.modules.chatbot.exceptions import ChatbotSchemaNotReadyError
 from app.modules.conversation import router as conversation_router
 from app.modules.datasources import router as datasources_router
 from app.modules.identity import router as identity_router
@@ -65,6 +67,11 @@ async def lifespan(app: FastAPI):
 
 def create_app() -> FastAPI:
     app = FastAPI(title="Enterprise AI Platform", version="0.2.0", lifespan=lifespan)
+
+    @app.exception_handler(ChatbotSchemaNotReadyError)
+    async def chatbot_schema_not_ready(_request, exc: ChatbotSchemaNotReadyError):
+        return JSONResponse(status_code=503, content={"detail": str(exc)})
+
     install_rate_limiting(app)
     install_middleware(app)
 

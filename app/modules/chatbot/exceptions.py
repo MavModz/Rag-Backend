@@ -16,3 +16,7 @@ class ChatbotVersionConflictError(ChatbotError):
         self.expected = expected
         self.actual = actual
         super().__init__(f"Config version conflict: expected {expected}, got {actual}")
+
+
+class ChatbotSchemaNotReadyError(ChatbotError):
+    """Raised when the chatbot_configs table has not been created (migration pending)."""

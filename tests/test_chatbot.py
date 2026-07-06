@@ -73,3 +73,18 @@ def test_chatbot_routes_registered():
         "/chatbot/whatsapp/test",
     ):
         assert p in paths
+
+
+def test_missing_chatbot_table_detection():
+    from app.modules.chatbot.repository import _is_missing_chatbot_table
+
+    class UndefinedTableError(Exception):
+        pass
+
+    class FakeOrig(UndefinedTableError):
+        pass
+
+    class FakeExc:
+        orig = FakeOrig('relation "chatbot_configs" does not exist')
+
+    assert _is_missing_chatbot_table(FakeExc())  # type: ignore[arg-type]
