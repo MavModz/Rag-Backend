@@ -45,6 +45,38 @@ def sanitize_message(text: str) -> str:
     return cleaned
 
 
+def sanitize_history_role(role: str) -> str:
+    """Validate a pushed history turn role."""
+    if not isinstance(role, str) or not role.strip():
+        raise InvalidInput("history role must be user or assistant")
+    normalized = role.strip().lower()
+    if normalized not in ("user", "assistant"):
+        raise InvalidInput("history role must be user or assistant")
+    return normalized
+
+
+def sanitize_history_turns(
+    turns: list,
+    *,
+    max_turns: int,
+) -> list[tuple[str, str]]:
+    """Validate and clean pushed conversation history from a trusted BFF.
+
+    Returns a list of (role, content) tuples in chronological order. If more
+    than ``max_turns`` are supplied, keeps the most recent turns.
+    """
+    if max_turns < 1:
+        raise InvalidInput("max_turns must be at least 1")
+    cleaned: list[tuple[str, str]] = []
+    for turn in turns:
+        role = sanitize_history_role(getattr(turn, "role", ""))
+        content = sanitize_message(getattr(turn, "content", ""))
+        cleaned.append((role, content))
+    if len(cleaned) > max_turns:
+        cleaned = cleaned[-max_turns:]
+    return cleaned
+
+
 def sanitize_identifier(value: str, field: str) -> str:
     """Lightweight validation for ids/phone numbers used in DB queries."""
     if not isinstance(value, str) or not value.strip():

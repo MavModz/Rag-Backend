@@ -151,71 +151,46 @@ curl -X POST http://localhost:8000/provisioning/tenants \
 
 ---
 
-## Phase B — Register conversation data source (superadmin only)
+## Phase B — Chat history (WhatsApp push model)
 
-**Who calls:** Superadmin console (platform JWT) — **not** company admin UI.
+**WhatsApp does not register Mongo on the AI platform.**
 
-Stores encrypted Mongo URI + collection names + field mapping in AI `data_sources` for the **provisioned tenant**.
-
-### Preset (load form defaults)
+The **WhatsApp backend** loads recent turns from its own Mongo and passes them on each `/chat` call:
 
 ```http
-GET /admin/data-sources/whatsapp-preset
-Authorization: Bearer <superadmin_jwt>
-```
+POST /chat
+X-API-Key: sk_...
+X-Agent: whatsapp
+X-Channel: whatsapp
 
-Returns default `type`, `name`, `config.collections` (`active_chats`, `history_chats`), and `field_mapping` for WhatsApp Mongo.
-
-### CRUD per tenant
-
-```http
-GET    /admin/tenants/{tenant_id}/data-sources
-POST   /admin/tenants/{tenant_id}/data-sources
-GET    /admin/tenants/{tenant_id}/data-sources/{source_id}
-PATCH  /admin/tenants/{tenant_id}/data-sources/{source_id}
-DELETE /admin/tenants/{tenant_id}/data-sources/{source_id}
-Authorization: Bearer <superadmin_jwt>
-```
-
-Test connection and schema discovery (before save):
-
-```http
-POST /data-sources/test
-POST /data-sources/discover
-Authorization: Bearer <superadmin_jwt>
-```
-
-**Create body example:**
-
-```json
 {
-  "type": "mongo",
-  "name": "WhatsApp conversations",
-  "config": {
-    "uri": "mongodb://ai_reader:pass@host:27017",
-    "db": "whatsapp_production",
-    "collections": ["active_chats", "history_chats"]
-  },
-  "field_mapping": {
-    "company_field": "company_id",
-    "company_is_object_id": true,
-    "user_fields": ["from", "to"],
-    "content_field": "body",
-    "role_field": "sender_type",
-    "role_user_value": "customer",
-    "timestamp_field": "created_at"
-  },
-  "enabled": true
+  "message": "Do you have a trial?",
+  "user_number": "+919876543210",
+  "company_id": "507f1f77bcf86cd799439012",
+  "history": [
+    { "role": "user", "content": "What are your prices?" },
+    { "role": "assistant", "content": "Our starter plan is $29/month." }
+  ]
 }
 ```
 
-- **URI** is encrypted at rest (`DATA_SOURCE_ENCRYPTION_KEY` in prod).
-- **Collection names** are not secret.
-- **Field mapping** adapts your Mongo schema to the connector — see below.
+| `role` | Meaning |
+|--------|---------|
+| `user` | Customer (`direction: incoming` in WhatsApp Mongo) |
+| `assistant` | Admin / bot (`direction: outgoing`) |
 
-Verify: `POST /data-sources/test` with same config.
+**AI platform:** optional `history` on `POST /chat` — when provided, connector pull is skipped.
 
-### LMS (MySQL) example
+### LMS / CRM (pull model — unchanged)
+
+Tenants can still register their own DB via tenant API key:
+
+```http
+POST /data-sources
+X-API-Key: sk_...
+```
+
+LMS MySQL example:
 
 ```json
 {
@@ -238,18 +213,21 @@ Verify: `POST /data-sources/test` with same config.
 
 ---
 
-## Field mapping (why it is required)
+## Field mapping (LMS / CRM connector only)
 
-The connector normalizes every DB into `ChatTurn { role, content, timestamp }`.
-Your LMS/CRM/WhatsApp schemas use different column names — mapping tells the
-connector which fields mean user, content, role, and timestamp.
+The connector normalizes external DB rows into `ChatTurn { role, content, timestamp }`.
+**WhatsApp does not use this path** — it pushes `history` on `/chat` instead.
 
 | Mapping key (Mongo) | Default | Purpose |
 |---------------------|---------|---------|
 | `user_fields` | `["from","to"]` | Match end-user id (phone, user_id) |
 | `content_field` | `"content"` | Message text |
 | `role_field` | `"direction"` | Who sent it |
-| `role_user_value` | `"incoming"` | Value = customer spoke |
+| `role_user_value` | `"incoming"` | Customer → business (end-user spoke) |
+| `content_field` | `"content"` | Message text |
+| `user_fields` | `["waId","from","to"]` | Match customer phone on `/chat` |
+| `timestamp_field` | `"timestamp"` | Sort order |
+| `exclude_types` | `["reaction","sticker"]` | Skip non-conversational noise |
 | `timestamp_field` | `"timestamp"` | Sort order |
 | `company_field` | `"company_id"` | Org filter (`""` to skip) |
 
@@ -380,18 +358,17 @@ admin login only.
 | Opaque user ref | Yes | `sessions.external_user_id` |
 | AI chat turns | Yes | `messages` (only when `/chat` called) |
 | Memory insights | Yes | `memories` + Qdrant |
-| Full chat archive | No | Product DB; AI reads via connector |
+| Full chat archive | No | WhatsApp Mongo; pushed as `history` on `/chat` (planned) |
 
 ---
 
-## Chat history strategy (active + history collections)
+## Chat history strategy (WhatsApp)
 
-Do **not** sync all chats into AI Postgres on every message.
-
-1. Register both collections in data source: `active_chats`, `history_chats`
-2. On each `/chat`, connector pulls last N turns (`history_limit`, default 10)
-3. When chat moves to history after 24h, add `session_summary` on archive (WhatsApp)
-4. Long-term context via `memory` module (optional)
+1. WhatsApp webhook loads last N turns from `active_chats` / `history_chats`
+2. Maps `incoming` → `user`, `outgoing` → `assistant`
+3. Sends `history` array on `POST /chat` with the new `message`
+4. AI uses provided history (no Mongo credentials on AI platform)
+5. Optional later: `session_summary` on archive documents in WhatsApp Mongo
 
 ---
 
@@ -417,7 +394,7 @@ Meta tokens stay in WhatsApp DB only — never sent to AI.
 |-------|------------------|-------------|
 | **1** | Store credentials, `POST /chat` client, `shouldRouteToAI`, Meta reply | Use existing `/chat` |
 | **2** | KB upload BFF → `/ingest` | Use existing `/ingest` |
-| **3** | Superadmin registers Mongo via `/admin/tenants/{id}/data-sources` | Preset at `/admin/data-sources/whatsapp-preset` |
+| **3** | Webhook sends `history` on `/chat` | `history` on `ChatRequest` (live) |
 | **4** | Chatbot settings BFF | Proxy `/chatbot/whatsapp/*` |
 | **5** | `session_summary` on archive | Optional connector extension |
 

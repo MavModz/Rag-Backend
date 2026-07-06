@@ -18,9 +18,11 @@ from app.modules.knowledge.constants import DEFAULT_CHAT_PRODUCT
 from app.platform.tenancy.constants import KNOWN_PRODUCTS
 from app.platform.auth.dependencies import require_permission
 from app.platform.auth.rbac import Permission
+from app.platform.connectors.base import ChatTurn
 from app.platform.ratelimit.limiter import limiter
 from app.platform.security.sanitize import (
     InvalidInput,
+    sanitize_history_turns,
     sanitize_identifier,
     sanitize_message,
 )
@@ -56,6 +58,20 @@ def _resolve(payload: ChatRequest, ctx: RequestContext) -> tuple[str, str, str, 
     return company_id, user_number, message, _resolve_product(payload, ctx)
 
 
+def _resolve_history(payload: ChatRequest) -> list[ChatTurn] | None:
+    """Convert optional pushed history into normalized ChatTurns."""
+    if payload.history is None:
+        return None
+    try:
+        pairs = sanitize_history_turns(
+            payload.history,
+            max_turns=settings.history_limit,
+        )
+    except InvalidInput as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return [ChatTurn(role=role, content=content) for role, content in pairs]
+
+
 @router.post("/chat", response_model=ChatResponse)
 @limiter.limit(settings.rate_limit_chat)
 async def chat(
@@ -64,6 +80,7 @@ async def chat(
     ctx: RequestContext = Depends(require_permission(Permission.CHAT_WRITE)),
 ) -> ChatResponse:
     company_id, user_number, message, product = _resolve(payload, ctx)
+    history_turns = _resolve_history(payload)
     try:
         result = await chat_service.handle(
             company_id=company_id,
@@ -71,6 +88,7 @@ async def chat(
             message=message,
             tenant_ctx=ctx,
             product=product,
+            history_turns=history_turns,
         )
     except ChatbotDisabledError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
@@ -86,6 +104,7 @@ async def chat_stream(
 ) -> StreamingResponse:
     """Stream the answer as Server-Sent Events (token + done events)."""
     company_id, user_number, message, product = _resolve(payload, ctx)
+    history_turns = _resolve_history(payload)
 
     async def event_source():
         try:
@@ -95,6 +114,7 @@ async def chat_stream(
                 message=message,
                 tenant_ctx=ctx,
                 product=product,
+                history_turns=history_turns,
             ):
                 yield f"data: {json.dumps(event)}\n\n"
         except ChatbotDisabledError as exc:

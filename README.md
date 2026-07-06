@@ -209,16 +209,8 @@ Response (`201`): `tenant_id`, `api_key` (shown once), `admin_email`,
 | POST | `/data-sources/test` | `datasources:manage` | Test connection (no save) |
 | POST | `/data-sources/discover` | `datasources:manage` | Discover DBs/tables/collections |
 
-**Superadmin** (platform JWT, `admin:tenants`) — register WhatsApp Mongo per tenant:
-
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/admin/data-sources/whatsapp-preset` | Default WhatsApp Mongo config + field mapping |
-| GET/POST | `/admin/tenants/{tenant_id}/data-sources` | List / create tenant data source |
-| GET/PATCH/DELETE | `/admin/tenants/{tenant_id}/data-sources/{id}` | Manage one source |
-
-Use `POST /data-sources/test` and `POST /data-sources/discover` to validate before save.
-When configured, `POST /chat` with `X-Agent: whatsapp` loads prior turns from `active_chats` + `history_chats`.
+Tenant self-service `/data-sources` remains for **LMS/CRM** embedded products.
+**WhatsApp** does not use AI-side Mongo registration; history is pushed on `/chat` (planned).
 
 ### Platform knowledge (`/platform`) — parent company docs
 

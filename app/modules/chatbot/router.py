@@ -7,11 +7,13 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app.modules.chatbot import schemas
 from app.modules.chatbot import service as chatbot_service
+from app.config import settings
 from app.modules.chatbot.exceptions import ChatbotDisabledError, ChatbotVersionConflictError
 from app.modules.conversation import service as chat_service
 from app.platform.auth.dependencies import require_permission
 from app.platform.auth.rbac import Permission
-from app.platform.security.sanitize import InvalidInput, sanitize_identifier, sanitize_message
+from app.platform.connectors.base import ChatTurn
+from app.platform.security.sanitize import InvalidInput, sanitize_history_turns, sanitize_identifier, sanitize_message
 from app.platform.tenancy.context import TenantContext
 from app.platform.tenancy.request_context import RequestContext
 
@@ -94,6 +96,17 @@ async def test_whatsapp_config(
     config = await chatbot_service.get_config_row(_tenant_id(ctx), _CHANNEL)
     product = config.product if config else None
 
+    history_turns = None
+    if payload.simulate_history:
+        try:
+            pairs = sanitize_history_turns(
+                payload.simulate_history,
+                max_turns=settings.history_limit,
+            )
+        except InvalidInput as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        history_turns = [ChatTurn(role=role, content=content) for role, content in pairs]
+
     result = await chat_service.handle(
         company_id=company_id,
         user_number=user_number,
@@ -101,5 +114,6 @@ async def test_whatsapp_config(
         tenant_ctx=ctx,
         product=product,
         persist=False,
+        history_turns=history_turns,
     )
     return schemas.ChatbotTestResponse(answer=result.answer, sources=result.sources)

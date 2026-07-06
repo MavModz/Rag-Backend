@@ -18,6 +18,9 @@ field_mapping (all optional; defaults shown):
     role_field            "direction"
     role_user_value       "incoming"    # value of role_field that means the end-user spoke
     timestamp_field       "timestamp"
+    type_field            "type"        # optional message type column
+    exclude_types         []            # e.g. ["reaction", "sticker"]
+    include_types         []            # if set, only these types (overrides exclude)
 
 We never write to the tenant's collections.
 """
@@ -56,6 +59,9 @@ class MongoConversationConnector(ConversationConnector):
         self._role_user_value = fm.get("role_user_value", "incoming")
         self._ts_field = fm.get("timestamp_field", "timestamp")
         self._collections = self.config.options.get("collections") or []
+        self._type_field = fm.get("type_field", "type")
+        self._exclude_types = list(fm.get("exclude_types") or [])
+        self._include_types = list(fm.get("include_types") or [])
 
     def _db(self) -> AsyncIOMotorDatabase:
         if self._db_override is not None:
@@ -84,6 +90,10 @@ class MongoConversationConnector(ConversationConnector):
             )
         if self._user_fields:
             query["$or"] = [{f: external_user_id} for f in self._user_fields]
+        if self._include_types:
+            query[self._type_field] = {"$in": self._include_types}
+        elif self._exclude_types:
+            query[self._type_field] = {"$nin": self._exclude_types}
         return query
 
     async def _fetch_recent(self, collection: str, query: dict, limit: int) -> list[ChatTurn]:

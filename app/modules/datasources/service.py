@@ -10,7 +10,6 @@ import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.datasources import constants as ds_constants
 from app.modules.datasources import repository as repo
 from app.modules.datasources import schemas
 from app.platform.connectors.models import DataSource
@@ -39,13 +38,6 @@ def to_out(src: DataSource) -> schemas.DataSourceOut:
         field_mapping=src.field_mapping or {},
         enabled=src.enabled,
         created_at=src.created_at,
-    )
-
-
-def whatsapp_preset() -> schemas.WhatsAppDataSourcePreset:
-    return schemas.WhatsAppDataSourcePreset(
-        config=dict(ds_constants.WHATSAPP_MONGO_CONFIG_TEMPLATE),
-        field_mapping=dict(ds_constants.WHATSAPP_MONGO_FIELD_MAPPING),
     )
 
 

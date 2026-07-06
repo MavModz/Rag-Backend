@@ -1,9 +1,18 @@
 """Request/response models for the Conversation Service chat endpoints."""
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 from app.modules.knowledge.constants import DEFAULT_CHAT_PRODUCT
+
+
+class HistoryTurn(BaseModel):
+    """One prior message in a conversation, pushed by the product backend."""
+
+    role: Literal["user", "assistant"]
+    content: str = Field(..., min_length=1, description="Message text for this turn.")
 
 
 class ChatRequest(BaseModel):
@@ -15,6 +24,15 @@ class ChatRequest(BaseModel):
     company_id: str | None = Field(default=None, description="External company/tenant id.")
     user_number: str | None = Field(default=None, description="External end-user id.")
     session_id: str | None = Field(default=None, description="Optional client session id.")
+    history: list[HistoryTurn] | None = Field(
+        default=None,
+        max_length=50,
+        description=(
+            "Optional prior turns from the product backend (e.g. WhatsApp Mongo). "
+            "Chronological order. When set, the platform does not pull history "
+            "from a registered data-source connector."
+        ),
+    )
 
 
 class ChatResponse(BaseModel):

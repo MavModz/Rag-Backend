@@ -21,6 +21,7 @@ from app.modules.conversation import repository as conv_repo
 from app.modules.knowledge.constants import DEFAULT_CHAT_PRODUCT
 from app.modules.knowledge.rag import context_builder, retriever
 from app.modules.memory import service as memory_service
+from app.platform.connectors.base import ChatTurn
 from app.platform.connectors import registry as connector_registry
 from app.platform.db.postgres import get_sessionmaker
 from app.platform.observability.logging import get_logger
@@ -70,13 +71,19 @@ async def handle(
     *,
     product: str | None = None,
     persist: bool = True,
+    history_turns: list[ChatTurn] | None = None,
 ) -> ChatResult:
     """Produce a grounded answer for a user's message within a tenant context."""
     profile = await resolve_chat_profile(tenant_ctx, product=product)
     if profile.chatbot_channel:
         await chatbot_service.ensure_chatbot_enabled(tenant_ctx, profile.chatbot_channel)
     kb_context, history, memory_context, sources, procedural = await _gather_context(
-        tenant_ctx, company_id, user_number, message, profile=profile
+        tenant_ctx,
+        company_id,
+        user_number,
+        message,
+        profile=profile,
+        history_turns=history_turns,
     )
     answer = await agent.generate_answer(
         kb_context=kb_context,
@@ -95,6 +102,24 @@ async def handle(
     return ChatResult(answer=answer, sources=sources)
 
 
+async def _load_history_turns(
+    tenant_ctx: TenantContext | None,
+    company_id: str,
+    user_number: str,
+    *,
+    history_turns: list[ChatTurn] | None,
+) -> list[ChatTurn]:
+    """Resolve prior turns: pushed by the product backend or pulled from connector."""
+    if history_turns is not None:
+        return history_turns
+    connector = await connector_registry.get_connector_registry().get_conversation_connector(
+        tenant_ctx, company_id
+    )
+    return await connector.get_conversation(
+        external_user_id=user_number, company_id=company_id
+    )
+
+
 async def _gather_context(
     tenant_ctx: TenantContext | None,
     company_id: str,
@@ -102,27 +127,26 @@ async def _gather_context(
     message: str,
     *,
     profile: ChatProfile,
+    history_turns: list[ChatTurn] | None = None,
 ):
     """Shared step: retrieve KB chunks + prior history, build prompt blocks.
 
-    The conversation history comes from THIS tenant's registered data source
-    (their own DB/collections), resolved per request — not a global Mongo.
+    When ``history_turns`` is provided (including an empty list), prior turns
+    come from the request body — used by WhatsApp push-history. Otherwise the
+    connector reads the tenant's registered data source (LMS/CRM pull model).
     """
-    connector = await connector_registry.get_connector_registry().get_conversation_connector(
-        tenant_ctx, company_id
-    )
     small_talk = _is_small_talk(message)
     procedural = chat_intent.is_procedural_query(message)
     t0 = time.perf_counter()
     if small_talk:
         chunks = []
         memory_hits = []
-        history_turns = await connector.get_conversation(
-            external_user_id=user_number, company_id=company_id
+        resolved_history = await _load_history_turns(
+            tenant_ctx, company_id, user_number, history_turns=history_turns
         )
     else:
         retrieve_k = settings.chat_procedural_top_k if procedural else None
-        chunks, memory_hits, history_turns = await asyncio.gather(
+        chunks, memory_hits, resolved_history = await asyncio.gather(
             asyncio.to_thread(
                 retriever.retrieve,
                 company_id,
@@ -133,21 +157,24 @@ async def _gather_context(
                 retrieval_profile=profile.retrieval,
             ),
             asyncio.to_thread(memory_service.retrieve, company_id, message),
-            connector.get_conversation(external_user_id=user_number, company_id=company_id),
+            _load_history_turns(
+                tenant_ctx, company_id, user_number, history_turns=history_turns
+            ),
         )
     kb_context = context_builder.build_kb_context(chunks, procedural=procedural)
     memory_context = context_builder.build_memory_context(memory_hits)
-    history = context_builder.build_history(history_turns)
+    history = context_builder.build_history(resolved_history)
     logger.info(
         "context: agent=%s retrieval=%s small_talk=%s procedural=%s chunks=%d memory=%d "
-        "history=%d gather_ms=%.0f kb_chars=%d mem_chars=%d hist_chars=%d",
+        "history=%d history_source=%s gather_ms=%.0f kb_chars=%d mem_chars=%d hist_chars=%d",
         profile.agent or "-",
         profile.retrieval,
         small_talk,
         procedural,
         len(chunks),
         len(memory_hits),
-        len(history_turns),
+        len(resolved_history),
+        "push" if history_turns is not None else "connector",
         (time.perf_counter() - t0) * 1000,
         len(kb_context),
         len(memory_context),
@@ -163,6 +190,7 @@ async def stream(
     tenant_ctx: TenantContext | None = None,
     *,
     product: str | None = None,
+    history_turns: list[ChatTurn] | None = None,
 ) -> AsyncIterator[dict]:
     """Stream the answer as a sequence of events.
 
@@ -174,7 +202,12 @@ async def stream(
         await chatbot_service.ensure_chatbot_enabled(tenant_ctx, profile.chatbot_channel)
     t_start = time.perf_counter()
     kb_context, history, memory_context, sources, procedural = await _gather_context(
-        tenant_ctx, company_id, user_number, message, profile=profile
+        tenant_ctx,
+        company_id,
+        user_number,
+        message,
+        profile=profile,
+        history_turns=history_turns,
     )
     approx_input_tokens = (
         len(prompts.SYSTEM_PROMPT) + len(kb_context) + len(history) + len(message)

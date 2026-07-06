@@ -75,6 +75,20 @@ async def test_get_conversation_merges_and_orders(monkeypatch):
     ]
 
 
+async def test_build_query_adds_exclude_types():
+    connector = MongoConversationConnector(
+        ConnectorConfig(
+            type="mongo",
+            conn="",
+            db="rag",
+            options={"collections": ["active_chats"]},
+            field_mapping={"exclude_types": ["reaction", "sticker"]},
+        ),
+    )
+    query = connector._build_query("+91999", "comp1")
+    assert query["type"] == {"$nin": ["reaction", "sticker"]}
+
+
 async def test_get_conversation_adapts_to_custom_schema(monkeypatch):
     """A client whose docs use different field names works via field_mapping."""
     docs = [

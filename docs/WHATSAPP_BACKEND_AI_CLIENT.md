@@ -125,11 +125,26 @@ Content-Type: application/json
 ```json
 {
   "message": "What are your pricing plans?",
-  "user_number": "+15551234567",
-  "company_id": "<ai_tenant_id or crm_company_id>",
-  "product": "crm"
+  "user_number": "917727902031",
+  "company_id": "6a46466d808b90405db6e751",
+  "product": "crm",
+  "history": [
+    { "role": "user", "content": "Course fees" },
+    { "role": "assistant", "content": "Our masterclass is Rs.49." }
+  ]
 }
 ```
+
+| Field | Required | Notes |
+|-------|----------|-------|
+| `message` | Yes | Current customer message (not duplicated in `history`) |
+| `user_number` | Yes | Customer phone — match Mongo `waId` (digits, no `+`) |
+| `company_id` | Yes | CRM `company_id` — same value used in WhatsApp Mongo filter |
+| `product` | No | Defaults from chatbot config / headers |
+| `history` | No | Prior turns, chronological. When present, AI does **not** read Mongo |
+
+`history` roles: `user` = customer (`direction: incoming`), `assistant` = admin/bot (`outgoing`).
+Max 50 turns in request; platform keeps the most recent `HISTORY_LIMIT` (default 10).
 
 **Response `200`:**
 
@@ -221,67 +236,23 @@ Also delete object from tenant S3 bucket in WhatsApp backend if applicable.
 
 ---
 
-## 8. Register conversation data source (superadmin only)
+## 8. Chat history (WhatsApp — push model)
 
-**Who:** AI platform superadmin SPA (not WhatsApp BFF). Uses platform JWT.
-
-### Preset (form defaults)
-
-```http
-GET /admin/data-sources/whatsapp-preset
-Authorization: Bearer <superadmin_jwt>
-```
-
-### CRUD for a provisioned tenant
-
-```http
-GET    /admin/tenants/{tenant_id}/data-sources
-POST   /admin/tenants/{tenant_id}/data-sources
-PATCH  /admin/tenants/{tenant_id}/data-sources/{source_id}
-DELETE /admin/tenants/{tenant_id}/data-sources/{source_id}
-Authorization: Bearer <superadmin_jwt>
-```
-
-Test / discover before save (superadmin JWT):
-
-```http
-POST /data-sources/test
-POST /data-sources/discover
-Authorization: Bearer <superadmin_jwt>
-```
-
-**Create body (Mongo WhatsApp example):**
+**No superadmin Mongo registration on AI.** WhatsApp backend loads history from its own DB and includes it on `/chat` (see section 4).
 
 ```json
 {
-  "type": "mongo",
-  "name": "WhatsApp conversations",
-  "config": {
-    "uri": "mongodb://...",
-    "db": "whatsapp_db",
-    "collections": ["active_chats", "history_chats"]
-  },
-  "field_mapping": {
-    "company_field": "company_id",
-    "company_is_object_id": true,
-    "user_fields": ["from", "to"],
-    "content_field": "body",
-    "role_field": "sender_type",
-    "role_user_value": "customer",
-    "timestamp_field": "created_at"
-  },
-  "enabled": true
+  "message": "Do you have a trial?",
+  "user_number": "+919876543210",
+  "company_id": "507f1f77bcf86cd799439012",
+  "history": [
+    { "role": "user", "content": "What are your prices?" },
+    { "role": "assistant", "content": "Our starter plan is $29/month." }
+  ]
 }
 ```
 
-**Response `201`:** `{ "id", "type", "name", "config": { "uri": "****..." }, ... }`
-
-```http
-POST /data-sources/test
-X-API-Key: sk_...
-```
-
-**Body:** same `type`, `config`, `field_mapping` — **Response:** `{ "ok": true }`
+Map in WhatsApp BFF: `direction: incoming` → `user`, `outgoing` → `assistant`.
 
 ---
 

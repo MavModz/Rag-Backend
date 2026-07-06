@@ -14,9 +14,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.modules.admin import repository as repo
 from app.modules.admin import schemas
 from app.modules.admin import service as admin_service
-from app.modules.datasources import repository as ds_repo
-from app.modules.datasources import schemas as ds_schemas
-from app.modules.datasources import service as ds_service
 from app.modules.identity import repository as identity_repo
 from app.modules.identity import schemas as identity_schemas
 from app.modules.identity import service as identity_service
@@ -67,17 +64,6 @@ def _uuid(value: str, what: str) -> uuid.UUID:
         return uuid.UUID(value)
     except ValueError:
         raise HTTPException(status_code=422, detail=f"Invalid {what} id") from None
-
-
-async def _require_tenant(session: AsyncSession, tenant_id: uuid.UUID):
-    tenant = await repo.get_tenant(session, tenant_id)
-    if tenant is None:
-        raise HTTPException(status_code=404, detail="Tenant not found")
-    return tenant
-
-
-def _ds_uuid(value: str) -> uuid.UUID:
-    return _uuid(value, "data source")
 
 
 def _user_out(u) -> schemas.UserOut:
@@ -255,97 +241,6 @@ async def revoke_api_key(
         id=str(key.id), name=key.name, prefix=key.prefix, scopes=key.scopes,
         revoked=key.revoked, last_used_at=key.last_used_at, created_at=key.created_at,
     )
-
-
-# --------------------------- data sources (superadmin) ---------------------
-@router.get("/data-sources/whatsapp-preset", response_model=ds_schemas.WhatsAppDataSourcePreset)
-async def whatsapp_data_source_preset(
-    _ctx: TenantContext = Depends(require_permission(rbac.Permission.ADMIN_TENANTS)),
-) -> ds_schemas.WhatsAppDataSourcePreset:
-    """Default Mongo config + field mapping for WhatsApp chat history."""
-    return ds_service.whatsapp_preset()
-
-
-@router.get("/tenants/{tenant_id}/data-sources", response_model=list[ds_schemas.DataSourceOut])
-async def list_tenant_data_sources(
-    tenant_id: str,
-    session: AsyncSession = Depends(get_session),
-    _ctx: TenantContext = Depends(require_permission(rbac.Permission.ADMIN_TENANTS)),
-) -> list[ds_schemas.DataSourceOut]:
-    tid = _uuid(tenant_id, "tenant")
-    await _require_tenant(session, tid)
-    rows = await ds_repo.list_for_tenant(session, tid)
-    return [ds_service.to_out(r) for r in rows]
-
-
-@router.post(
-    "/tenants/{tenant_id}/data-sources",
-    response_model=ds_schemas.DataSourceOut,
-    status_code=201,
-)
-async def create_tenant_data_source(
-    tenant_id: str,
-    payload: ds_schemas.DataSourceCreate,
-    session: AsyncSession = Depends(get_session),
-    _ctx: TenantContext = Depends(require_permission(rbac.Permission.ADMIN_TENANTS)),
-) -> ds_schemas.DataSourceOut:
-    tid = _uuid(tenant_id, "tenant")
-    await _require_tenant(session, tid)
-    src = await ds_service.create(session, tid, payload)
-    return ds_service.to_out(src)
-
-
-@router.get(
-    "/tenants/{tenant_id}/data-sources/{source_id}",
-    response_model=ds_schemas.DataSourceOut,
-)
-async def get_tenant_data_source(
-    tenant_id: str,
-    source_id: str,
-    session: AsyncSession = Depends(get_session),
-    _ctx: TenantContext = Depends(require_permission(rbac.Permission.ADMIN_TENANTS)),
-) -> ds_schemas.DataSourceOut:
-    tid = _uuid(tenant_id, "tenant")
-    await _require_tenant(session, tid)
-    src = await ds_repo.get_for_tenant(session, tid, _ds_uuid(source_id))
-    if src is None:
-        raise HTTPException(status_code=404, detail="Data source not found")
-    return ds_service.to_out(src)
-
-
-@router.patch(
-    "/tenants/{tenant_id}/data-sources/{source_id}",
-    response_model=ds_schemas.DataSourceOut,
-)
-async def update_tenant_data_source(
-    tenant_id: str,
-    source_id: str,
-    payload: ds_schemas.DataSourceUpdate,
-    session: AsyncSession = Depends(get_session),
-    _ctx: TenantContext = Depends(require_permission(rbac.Permission.ADMIN_TENANTS)),
-) -> ds_schemas.DataSourceOut:
-    tid = _uuid(tenant_id, "tenant")
-    await _require_tenant(session, tid)
-    src = await ds_repo.get_for_tenant(session, tid, _ds_uuid(source_id))
-    if src is None:
-        raise HTTPException(status_code=404, detail="Data source not found")
-    src = await ds_service.update(session, src, payload)
-    return ds_service.to_out(src)
-
-
-@router.delete("/tenants/{tenant_id}/data-sources/{source_id}", status_code=204)
-async def delete_tenant_data_source(
-    tenant_id: str,
-    source_id: str,
-    session: AsyncSession = Depends(get_session),
-    _ctx: TenantContext = Depends(require_permission(rbac.Permission.ADMIN_TENANTS)),
-) -> None:
-    tid = _uuid(tenant_id, "tenant")
-    await _require_tenant(session, tid)
-    src = await ds_repo.get_for_tenant(session, tid, _ds_uuid(source_id))
-    if src is None:
-        raise HTTPException(status_code=404, detail="Data source not found")
-    await ds_service.delete_source(session, src)
 
 
 # ------------------------------- roles -----------------------------------
