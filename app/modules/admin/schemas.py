@@ -90,10 +90,17 @@ class RoleOut(BaseModel):
 # ---- Bulk onboarding / provisioning ----
 class ProvisionRow(BaseModel):
     name: str
+    company_name: str | None = None
     slug: str | None = None
     plan: str | None = None
     admin_email: EmailStr
-    admin_password: str | None = None  # generated if absent
+    admin_password: str | None = None  # generated if absent (legacy bulk only)
+    phone: str | None = None
+    role: str | None = None
+    lms_user_id: int | None = None
+    lms_institute_id: int | None = None
+    crm_user_id: str | None = None
+    crm_company_id: str | None = None
     # Optional: attach the client's existing database in the same step.
     ds_type: str | None = None         # mongo | sql | mysql | postgres
     ds_conn: str | None = None         # connection string
@@ -109,17 +116,19 @@ class BulkProvisionRequest(BaseModel):
 
 class ProvisionResult(BaseModel):
     name: str
-    status: str  # created | skipped | error
+    status: str  # created | updated | skipped | error
     tenant_id: str | None = None
     admin_email: str | None = None
     admin_password: str | None = None  # generated only; shown once
-    api_key: str | None = None         # shown once
+    api_key: str | None = None         # shown once on create
+    api_key_prefix: str | None = None
     data_source_id: str | None = None
     error: str | None = None
 
 
 class BulkProvisionResponse(BaseModel):
     created: int
+    updated: int
     skipped: int
     errors: int
     results: list[ProvisionResult]

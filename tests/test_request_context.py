@@ -115,7 +115,7 @@ def test_product_jwt_resolves_org_id(monkeypatch):
         return FakeTenant()
 
     monkeypatch.setattr(
-        "app.platform.auth.dependencies.repository.get_tenant_by_external_org_id",
+        "app.platform.auth.dependencies.repository.get_tenant_by_org_identifier",
         fake_lookup,
     )
 

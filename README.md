@@ -366,6 +366,12 @@ python -m alembic upgrade head          # apply migrations
 python -m scripts.seed                # bootstrap admin + default tenant + API key
 ```
 
+**Clean restart** (wipes all Postgres data, reapplies migrations):
+
+```bash
+python -m scripts.reset_db --yes --seed
+```
+
 ### Ingest — platform (parent company, shared)
 
 ```bash

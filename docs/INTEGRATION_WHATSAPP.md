@@ -353,7 +353,7 @@ admin login only.
 | Data | Stored in AI? | Where |
 |------|---------------|-------|
 | CRM/LMS user profile (name, email) | No | LMS MySQL / CRM Mongo |
-| Org | Yes | `tenants` (+ optional `external_org_id`) |
+| Org | Yes | `tenants` (`lms_institute_id` / `crm_company_id`) |
 | API key hash | Yes | `api_keys` |
 | Opaque user ref | Yes | `sessions.external_user_id` |
 | AI chat turns | Yes | `messages` (only when `/chat` called) |

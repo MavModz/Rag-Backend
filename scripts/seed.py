@@ -101,6 +101,8 @@ async def _seed() -> None:
                     email=settings.seed_admin_email,
                     password_hash=hash_password(settings.seed_admin_password),
                     name="Platform Admin",
+                    phone=None,
+                    external_role_label="admin",
                     roles=[admin_role],
                 )
             )

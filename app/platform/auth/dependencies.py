@@ -102,7 +102,7 @@ async def _ctx_from_platform_jwt(token: str) -> TenantContext | None:
 async def _tenant_from_org_id(org_id: str) -> TenantContext | None:
     sessionmaker = get_sessionmaker()
     async with sessionmaker() as session:
-        tenant = await repository.get_tenant_by_external_org_id(session, org_id)
+        tenant = await repository.get_tenant_by_org_identifier(session, org_id)
         if tenant is None or tenant.status != "active":
             direct = product_jwt.org_id_as_tenant_uuid(org_id)
             if direct is not None:

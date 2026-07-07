@@ -110,7 +110,18 @@ def test_provisioning_disabled_returns_404(monkeypatch):
     app.dependency_overrides[get_session] = _no_db
     try:
         with TestClient(app) as client:
-            r = client.post("/provisioning/tenants", json={"name": "X", "admin_email": "a@b.com"})
+            r = client.post(
+                "/provisioning/tenants",
+                json={
+                    "name": "Jane",
+                    "company_name": "X",
+                    "admin_email": "a@b.com",
+                    "phone": "+15550001111",
+                    "role": "admin",
+                    "lms_user_id": 1,
+                    "lms_institute_id": 2,
+                },
+            )
             assert r.status_code == 404
     finally:
         app.dependency_overrides.pop(get_session, None)

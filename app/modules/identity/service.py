@@ -73,8 +73,22 @@ async def refresh_tokens(session: AsyncSession, refresh_token: str) -> dict:
     return await issue_tokens(session, user, scopes)
 
 
-async def create_tenant(session: AsyncSession, *, name: str, slug: str, plan: str) -> Tenant:
-    tenant = Tenant(name=name, slug=slug, plan=plan)
+async def create_tenant(
+    session: AsyncSession,
+    *,
+    name: str,
+    slug: str,
+    plan: str,
+    lms_institute_id: int | None = None,
+    crm_company_id: str | None = None,
+) -> Tenant:
+    tenant = Tenant(
+        name=name,
+        slug=slug,
+        plan=plan,
+        lms_institute_id=lms_institute_id,
+        crm_company_id=crm_company_id,
+    )
     await repository.add(session, tenant)
     return tenant
 
@@ -84,18 +98,26 @@ async def create_user(
     *,
     tenant_id: uuid.UUID,
     email: str,
-    password: str,
+    password: str | None,
     name: str | None = None,
     phone: str | None = None,
     role_names: list[str],
+    external_role_label: str = "admin",
+    lms_user_id: int | None = None,
+    crm_user_id: str | None = None,
+    generated_password: str | None = None,
 ) -> User:
     roles = await repository.get_roles_by_names(session, role_names)
+    raw_password = password if password is not None else generated_password
     user = User(
         tenant_id=tenant_id,
         email=email,
         phone=phone,
         name=name,
-        password_hash=hash_password(password),
+        password_hash=hash_password(raw_password) if raw_password else None,
+        external_role_label=external_role_label,
+        lms_user_id=lms_user_id,
+        crm_user_id=crm_user_id,
         roles=roles,
     )
     await repository.add(session, user)
