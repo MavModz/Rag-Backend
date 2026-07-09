@@ -33,6 +33,7 @@ def test_handle_uses_pushed_history_and_skips_connector(monkeypatch):
         prompt_source="default",
         chatbot_channel=None,
         procedural=False,
+        sources=None,
     ):
         captured["history"] = history
         return "The course fee is Rs.49."

@@ -25,6 +25,7 @@ from app.platform.connectors.base import ChatTurn
 from app.platform.connectors import registry as connector_registry
 from app.platform.db.postgres import get_sessionmaker
 from app.platform.observability.logging import get_logger
+from app.platform.security.policy import gate_answer, is_policy_refusal
 from app.platform.tenancy.chat_profile import ChatProfile, resolve_chat_profile
 from app.platform.tenancy.constants import AGENT_PLATFORM_HELP
 from app.platform.tenancy.context import TenantContext
@@ -94,6 +95,7 @@ async def handle(
         prompt_source=profile.prompt_source,
         chatbot_channel=profile.chatbot_channel,
         procedural=procedural,
+        sources=sources,
     )
     if persist:
         _persist_async(
@@ -217,6 +219,8 @@ async def stream(
 
     parts: list[str] = []
     ttft_ms: float | None = None
+    # Buffer the model stream, then policy-gate before any client-visible tokens.
+    # Yielding tokens first would leak ungrounded policy claims before a block event.
     async for token in agent.stream_answer(
         kb_context=kb_context,
         history=history,
@@ -230,14 +234,24 @@ async def stream(
         if ttft_ms is None:
             ttft_ms = (time.perf_counter() - t_start) * 1000
         parts.append(token)
-        yield {"type": "token", "text": token}
+    raw_answer = "".join(parts)
+    answer = gate_answer(raw_answer, sources=sources, kb_context=kb_context)
+    # Only true for real policy refusals — not whitespace-only model output.
+    policy_gated = is_policy_refusal(answer)
     logger.info(
-        "chat.stream done ttft_ms=%.0f total_ms=%.0f out_chars=%d",
-        ttft_ms or 0.0, (time.perf_counter() - t_start) * 1000, sum(len(p) for p in parts),
+        "chat.stream done ttft_ms=%.0f total_ms=%.0f out_chars=%d gated=%s",
+        ttft_ms or 0.0,
+        (time.perf_counter() - t_start) * 1000,
+        len(answer),
+        policy_gated,
     )
-    yield {"type": "done", "sources": sources}
+    if answer:
+        yield {"type": "token", "text": answer}
+    if policy_gated:
+        yield {"type": "policy_blocked", "text": answer}
+    yield {"type": "done", "sources": sources, "policy_gated": policy_gated}
     _persist_async(
-        tenant_ctx, user_number, message, "".join(parts), sources, profile=profile
+        tenant_ctx, user_number, message, answer, sources, profile=profile
     )
 
 

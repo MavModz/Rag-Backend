@@ -129,6 +129,8 @@ def build_system_prompt_text(row: ChatbotConfig, *, procedural: bool = False) ->
         else conv_prompts.GENERAL_SYSTEM_ADDENDUM
     )
     parts.append(addendum.strip())
+    # Hard platform safety rules always win over tenant tone/instructions.
+    parts.append(conv_prompts.SAFETY_SYSTEM_ADDENDUM.strip())
     return "\n\n".join(p for p in parts if p)
 
 

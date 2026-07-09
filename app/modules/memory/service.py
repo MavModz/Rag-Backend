@@ -12,6 +12,7 @@ from app.platform.db.postgres import get_sessionmaker
 from app.platform.gateway.gateway import get_gateway
 from app.platform.gateway.types import Message
 from app.platform.observability.logging import get_logger
+from app.platform.security.policy import should_store_memory_insight
 from app.platform.tenancy.context import TenantContext
 
 logger = get_logger(__name__)
@@ -55,6 +56,8 @@ async def reflect_turn(
         )
         insight = result.text.strip()
         if not insight or insight.lower() in _NONE_MARKERS:
+            return
+        if not should_store_memory_insight(insight, sources):
             return
         tenant_key = str(tenant_id)
         vector = embeddings.embed_query(insight)

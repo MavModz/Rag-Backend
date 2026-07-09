@@ -36,6 +36,7 @@ def test_handle_wires_layers_and_returns_sources(monkeypatch):
         prompt_source="default",
         chatbot_channel=None,
         procedural=False,
+        sources=None,
     ):
         captured["prompt"] = (
             kb_context,

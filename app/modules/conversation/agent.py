@@ -14,6 +14,7 @@ from app.modules.chatbot import service as chatbot_service
 from app.modules.conversation import prompts
 from app.platform.gateway.gateway import get_gateway
 from app.platform.gateway.types import Message
+from app.platform.security.policy import gate_answer
 from app.platform.tenancy.chat_profile import PromptSource
 from app.platform.tenancy.context import TenantContext
 
@@ -78,6 +79,7 @@ async def generate_answer(
     prompt_source: PromptSource = "default",
     chatbot_channel: str | None = None,
     procedural: bool = False,
+    sources: list[str] | None = None,
 ) -> str:
     result = await get_gateway().generate(
         _PROFILE,
@@ -93,7 +95,7 @@ async def generate_answer(
         ),
         tenant_ctx=tenant_ctx,
     )
-    return result.text
+    return gate_answer(result.text, sources=sources, kb_context=kb_context)
 
 
 async def stream_answer(
@@ -123,3 +125,4 @@ async def stream_answer(
         tenant_ctx=tenant_ctx,
     ):
         yield chunk.text
+
